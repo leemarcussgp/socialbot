@@ -11,6 +11,15 @@ def check_password():
     and the typed value is removed from memory immediately after it is checked.
     """
 
+    # A password must be configured in st.secrets (locally in
+    # .streamlit/secrets.toml, or in the Streamlit Cloud Secrets panel).
+    if "password" not in st.secrets:
+        st.error(
+            "No app password is configured. Set a `password` entry in the "
+            "app's secrets to enable login."
+        )
+        return False
+
     def password_entered():
         # Constant-time comparison avoids leaking the password via timing.
         if hmac.compare_digest(
