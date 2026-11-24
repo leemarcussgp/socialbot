@@ -11,7 +11,7 @@ offered by government and social service agencies.
 ### What it does
 - Answers questions about financial assistance and support schemes, grounded in
   the web pages and documents you provide.
-- Lets you add your own sources — paste scheme web pages or upload PDFs and text
+- Lets you add your own sources — paste web pages or upload PDFs and text
   files — so answers reflect the material relevant to your client.
 - Shows the source passages behind each answer, so you can verify before you
   act on anything.
