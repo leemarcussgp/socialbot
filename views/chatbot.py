@@ -220,9 +220,15 @@ with st.sidebar:
         url_text = st.text_area(
             "🌐 Web Pages (one URL per line)",
             value=(
-                "https://www.msf.gov.sg/what-we-do/comcare\n"
-                "https://www.mof.gov.sg/news-resources/individual-support-schemes/\n"
-                "https://www.moe.gov.sg/financial-matters/financial-assistance"
+#                "https://www.msf.gov.sg/what-we-do/comcare\n"
+#                "https://www.mof.gov.sg/news-resources/individual-support-schemes/\n"
+#                "https://www.moe.gov.sg/financial-matters/financial-assistance"
+                "https://supportgowhere.life.gov.sg/schemes/COMCARE-SMTA/comcare-assistance\n"
+                "https://supportgowhere.life.gov.sg/schemes/COMCARE-SMTA/comcare-assistance\n"
+                "https://supportgowhere.life.gov.sg/schemes/COMCARE-SMTA/comcare-assistance\n"
+                "https://supportgowhere.life.gov.sg/schemes/SCFA/student-care-fee-assistance-scfa\n"
+                "https://www.ecda.gov.sg/parents/subsidies-financial-assistance#KIFAS\n"
+                "https://www.ecda.gov.sg/parents/subsidies-financial-assistance#CCICS"
             ),
             height=150,
         )
@@ -305,9 +311,9 @@ with st.sidebar:
             try:
                 chunks.extend(load_and_split_url(url, chunk_size, chunk_overlap))
                 fetched_urls.append(url)
-            except Exception:
+            except Exception as exc:
                 traceback.print_exc()
-                st.warning(f"Could not fetch: {url}")
+                st.warning(f"Could not fetch {url}\n\n_{exc}_")
 
         # A scanned/image-only PDF, empty text file, or unreadable page yields
         # no chunks; Chroma.from_documents([]) would raise, so report clearly.
