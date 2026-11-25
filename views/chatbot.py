@@ -297,7 +297,7 @@ with st.sidebar:
 
         if uploaded_files or urls:
             labels = [f.name for f in uploaded_files] + urls
-            st.success("Loaded: " + ", ".join(labels))
+            st.success("Received: " + ", ".join(labels))
             # Filled in after the sources are processed (further down the sidebar)
             index_status = st.empty()
         elif "vectorstore" in st.session_state:
@@ -425,7 +425,15 @@ with st.sidebar:
             state["sources"][sid] = {"sig": source["sig"], "ids": ids}
             added_sources += 1
 
-        # Report the current state of the index.
+        # Report the current state of the index. Counts distinguish what was
+        # entered, what is actually indexed, and what was dropped, so the
+        # numbers never look mismatched to the user.
+        raw_total = len(uploaded_files) + len(urls)
+        requested = len(desired)              # unique sources after dedup
+        duplicates = raw_total - requested    # repeated URLs / filenames
+        indexed = len(state["sources"])       # successfully embedded
+        skipped = requested - indexed         # failed to fetch/read this run
+
         if not state["sources"]:
             st.session_state.pop("vectorstore", None)
             index_status.error(
@@ -434,11 +442,15 @@ with st.sidebar:
         else:
             st.session_state.vectorstore = store
             total_chunks = sum(len(s["ids"]) for s in state["sources"].values())
-            source_count = len(state["sources"])
-            suffix = f" (+{added_sources} new)" if added_sources else ""
-            index_status.success(
-                f"Ready! {source_count} source(s), {total_chunks} chunks indexed{suffix}."
+            msg = (
+                f"Ready! Indexed {indexed} of {requested} source(s) "
+                f"({total_chunks} chunks)."
             )
+            if skipped:
+                msg += f" {skipped} skipped — see warnings above."
+            if duplicates:
+                msg += f" {duplicates} duplicate entry(ies) ignored."
+            index_status.success(msg)
 
 # Render past messages in chat bubbles
 for message in st.session_state.messages:
