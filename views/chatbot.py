@@ -279,8 +279,8 @@ with st.sidebar:
                 "https://supportgowhere.life.gov.sg/schemes/COMCARE-SMTA/comcare-assistance\n"
                 "https://supportgowhere.life.gov.sg/schemes/COMCARE-SMTA/comcare-assistance\n"
                 "https://supportgowhere.life.gov.sg/schemes/SCFA/student-care-fee-assistance-scfa\n"
-                "https://www.ecda.gov.sg/parents/subsidies-financial-assistance#KIFAS\n"
-                "https://www.ecda.gov.sg/parents/subsidies-financial-assistance#CCICS"
+#                "https://www.ecda.gov.sg/parents/subsidies-financial-assistance#KIFAS\n"
+#                "https://www.ecda.gov.sg/parents/subsidies-financial-assistance#CCICS"
             ),
             height=150,
         )
