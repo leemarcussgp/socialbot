@@ -1,7 +1,5 @@
-import hashlib
 import ipaddress
 import os
-import shutil
 import socket
 import tempfile
 import time
@@ -49,15 +47,14 @@ CHAT_MODEL = "gpt-4o-mini"
 MAX_HISTORY_MESSAGES = 20
 
 
-def _session_persist_dir(session_id, cache_key):
-    """Return a per-session, per-source Chroma directory.
+def _session_persist_dir(session_id):
+    """Return this session's Chroma directory.
 
-    Scoping by ``session_id`` keeps concurrent users isolated from each other.
-    Scoping by a hash of ``cache_key`` means switching between document sets
-    creates separate stores instead of deleting one another's files.
+    Scoping by ``session_id`` keeps concurrent users isolated from each other;
+    each session owns one mutable collection that sources are added to and
+    removed from incrementally.
     """
-    digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:16]
-    return os.path.join(BASE_PERSIST_DIR, session_id, digest)
+    return os.path.join(BASE_PERSIST_DIR, session_id)
 
 
 def get_embeddings():
@@ -178,12 +175,19 @@ def _fetch_via_jina(url):
     return [Document(page_content=resp.text, metadata={"source": url})]
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_and_split_url(url, chunk_size=800, chunk_overlap=100):
     """Fetch a web page and return split Document chunks labeled with the URL.
 
     Tries a fast direct HTTP fetch first; if the page yields too little text
     (e.g. a JavaScript single-page app) or the direct fetch fails, it falls
     back to the Jina Reader rendering proxy.
+
+    The result is cached per (url, chunk_size, chunk_overlap) for one hour, so
+    an already-fetched page is not re-downloaded on every rerun (including when
+    other sources are added or chat messages are sent). Only successful results
+    are cached; a failed fetch raises and is retried on the next run. The TTL
+    bounds how stale a cached page can get.
     """
     _validate_public_url(url)
     last_error = None
@@ -220,26 +224,27 @@ def load_and_split_url(url, chunk_size=800, chunk_overlap=100):
 
 
 @st.cache_resource
-def build_vectorstore(_chunks, session_id, cache_key):
-    """Embed the document chunks and return a persisted Chroma vector store.
+def get_vectorstore(session_id):
+    """Return this session's persistent, mutable Chroma store.
 
-    The store lives in a directory scoped to both ``session_id`` and
-    ``cache_key`` (see _session_persist_dir), so concurrent users stay isolated
-    and switching document sets does not delete another store's files.
-    ``_chunks`` is unhashable and intentionally excluded from the Streamlit
-    cache key by its leading underscore.
+    The same object is reused across reruns (cached per ``session_id``), so
+    sources can be added and removed incrementally instead of rebuilding the
+    whole index whenever the source list changes.
     """
-    persist_dir = _session_persist_dir(session_id, cache_key)
-    # Rebuild this specific store from scratch. Only its own directory is
-    # touched, so other cached stores (for other sources or sessions) are safe.
-    if os.path.isdir(persist_dir):
-        shutil.rmtree(persist_dir)
+    persist_dir = _session_persist_dir(session_id)
     os.makedirs(persist_dir, exist_ok=True)
-    return Chroma.from_documents(
-        _chunks,
-        get_embeddings(),
+    return Chroma(
+        embedding_function=get_embeddings(),
         persist_directory=persist_dir,
     )
+
+
+def _store_is_empty(store):
+    """True if the store currently holds no vectors."""
+    try:
+        return len(store.get(limit=1)["ids"]) == 0
+    except Exception:
+        return True
 
 
 def build_rag_system_prompt(base_prompt, context):
@@ -342,62 +347,98 @@ with st.sidebar:
             "Temperature", min_value=0.0, max_value=2.0, step=0.1, value=0.2
         )
 
-    # Process the uploaded files and URLs into a single searchable vector store.
-    # Skip indexing when chunk settings are invalid, but still render the chat.
+    # Incrementally sync the vector store with the current source list. Only
+    # sources that are new or changed are embedded; removed ones are deleted.
+    # The whole thing is skipped when chunk settings are invalid, but the chat
+    # below still renders.
     if (uploaded_files or urls) and settings_valid:
-        # Merge the chunks from every uploaded file; a bad file skips rather
-        # than aborting, mirroring how URLs are handled below.
-        chunks = []
-        loaded_files = []
-        for f in uploaded_files:
-            try:
-                chunks.extend(load_and_split(f, chunk_size, chunk_overlap))
-                loaded_files.append(f)
-            except Exception:
-                traceback.print_exc()
-                st.warning(f"Could not read: {f.name}")
+        store = get_vectorstore(st.session_state.session_id)
 
-        # Fetch and merge each web page; a bad URL skips rather than aborting.
-        fetched_urls = []
+        # What the user currently wants indexed, keyed by a stable source id.
+        # For files the id is the filename and the "signature" is the size, so
+        # replacing a file with a same-named but different one is re-indexed.
+        # For URLs the id is the URL itself.
+        desired = {}
+        for f in uploaded_files:
+            desired[f.name] = {"kind": "file", "sig": f.size, "arg": f}
         for url in urls:
+            desired[url] = {"kind": "url", "sig": url, "arg": url}
+
+        # Per-session record of what is actually embedded: source id -> the
+        # chunk ids it produced, plus the chunk settings used.
+        state = st.session_state.setdefault(
+            "index_state", {"settings": None, "sources": {}}
+        )
+
+        # If the store was reset underneath us (e.g. cache eviction) but our
+        # record still lists sources, the record is stale — start clean.
+        if state["sources"] and _store_is_empty(store):
+            state["sources"] = {}
+            state["settings"] = None
+
+        # Changing chunk settings invalidates every existing chunk, so drop the
+        # whole index and re-add all current sources under the new settings.
+        settings = (chunk_size, chunk_overlap)
+        if state["settings"] != settings:
+            stale_ids = [i for s in state["sources"].values() for i in s["ids"]]
+            if stale_ids:
+                store.delete(ids=stale_ids)
+            state["sources"] = {}
+            state["settings"] = settings
+
+        # Remove sources no longer requested, and any whose signature changed
+        # (a changed source stays in `desired` and is re-added below).
+        to_remove = set(state["sources"]) - set(desired)
+        for sid in list(set(state["sources"]) & set(desired)):
+            if desired[sid]["sig"] != state["sources"][sid]["sig"]:
+                to_remove.add(sid)
+        for sid in to_remove:
+            ids = state["sources"].pop(sid)["ids"]
+            if ids:
+                store.delete(ids=ids)
+
+        # Add sources that aren't indexed yet.
+        to_add = [sid for sid in desired if sid not in state["sources"]]
+        added_sources = 0
+        for sid in to_add:
+            source = desired[sid]
             try:
-                chunks.extend(load_and_split_url(url, chunk_size, chunk_overlap))
-                fetched_urls.append(url)
+                if source["kind"] == "file":
+                    chunks = load_and_split(source["arg"], chunk_size, chunk_overlap)
+                else:
+                    chunks = load_and_split_url(
+                        source["arg"], chunk_size, chunk_overlap
+                    )
             except Exception as exc:
                 traceback.print_exc()
-                st.warning(f"Could not fetch {url}\n\n_{exc}_")
+                if source["kind"] == "file":
+                    st.warning(f"Could not read: {sid}")
+                else:
+                    st.warning(f"Could not fetch {sid}\n\n_{exc}_")
+                continue
 
-        # A scanned/image-only PDF, empty text file, or unreadable page yields
-        # no chunks; Chroma.from_documents([]) would raise, so report clearly.
-        if not chunks:
+            if not chunks:
+                st.warning(f"No readable text found in: {sid}")
+                continue
+
+            ids = store.add_documents(chunks)
+            state["sources"][sid] = {"sig": source["sig"], "ids": ids}
+            added_sources += 1
+
+        # Report the current state of the index.
+        if not state["sources"]:
+            st.session_state.pop("vectorstore", None)
             index_status.error(
                 "No text could be extracted from the provided sources."
             )
         else:
-            # Cache key reflects every source plus the chunking config, so the
-            # store rebuilds when the set of sources or the settings change.
-            file_keys = [
-                f"{f.name}-{f.size}"
-                for f in sorted(loaded_files, key=lambda f: f.name)
-            ]
-            source_keys = "|".join(file_keys + sorted(fetched_urls))
-            cache_key = f"{source_keys}-{chunk_size}-{chunk_overlap}"
-            try:
-                vectorstore = build_vectorstore(
-                    chunks, st.session_state.session_id, cache_key
-                )
-            except Exception:
-                traceback.print_exc()
-                index_status.error(
-                    "The search index could not be created. Please retry in a moment."
-                )
-            else:
-                st.session_state.vectorstore = vectorstore
-                # Surface the confirmation up near the inputs
-                source_count = len(loaded_files) + len(fetched_urls)
-                index_status.success(
-                    f"Ready! Indexed {len(chunks)} chunks from {source_count} source(s)."
-                )
+            st.session_state.vectorstore = store
+            total_chunks = sum(len(s["ids"]) for s in state["sources"].values())
+            source_count = len(state["sources"])
+            suffix = f" (+{added_sources} new)" if added_sources else ""
+            index_status.success(
+                f"Ready! {source_count} source(s), {total_chunks} chunks indexed{suffix}."
+            )
 
 # Render past messages in chat bubbles
 for message in st.session_state.messages:
