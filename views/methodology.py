@@ -108,9 +108,9 @@ application.
 )
 
 # ---------------------------------------------------------------------------
-# Use case 1 — Authentication
+# 1. Authentication
 # ---------------------------------------------------------------------------
-st.header("Use case 1 — Authentication")
+st.header("1. Authentication")
 
 st.markdown(
     """
@@ -154,9 +154,9 @@ digraph {
 )
 
 # ---------------------------------------------------------------------------
-# Use case 2 — Add a web page (URL)
+# 2. Add a web page (URL)
 # ---------------------------------------------------------------------------
-st.header("Use case 2 — Add a web page as a source")
+st.header("2. Add a web page as a source")
 
 st.markdown(
     """
@@ -204,9 +204,9 @@ digraph {
 )
 
 # ---------------------------------------------------------------------------
-# Use case 3 — Upload a document
+# 3. Upload a document
 # ---------------------------------------------------------------------------
-st.header("Use case 3 — Upload a document")
+st.header("3. Upload a document")
 
 st.markdown(
     """
@@ -247,9 +247,9 @@ digraph {
 )
 
 # ---------------------------------------------------------------------------
-# Use case 4 — Ask a question (RAG)
+# 4. Ask a question (RAG)
 # ---------------------------------------------------------------------------
-st.header("Use case 4 — Ask a question")
+st.header("4. Ask a question")
 
 st.markdown(
     """
@@ -297,9 +297,9 @@ digraph {
 )
 
 # ---------------------------------------------------------------------------
-# Use case 5 — Incremental index synchronization
+# 5. Incremental index synchronization
 # ---------------------------------------------------------------------------
-st.header("Use case 5 — Keeping the index in sync")
+st.header("5. Keeping the index in sync")
 
 st.markdown(
     """

@@ -88,12 +88,6 @@ Front-line social workers, case workers, and social-service professionals who
 need to quickly cross-reference schemes and eligibility information while
 working with clients.
 
-### Important disclaimer
-Social Bot is a decision-support aid, **not** a source of official guidance. The
-underlying language model can make mistakes or miss context. Always confirm
-eligibility, amounts, and application steps against the official agency sources
-before advising a client. See the **Disclaimer** page for full terms.
-
 ### Privacy
 Conversations and uploaded documents stay within your own session and are not
 shared with other users. Avoid entering information that identifies a specific

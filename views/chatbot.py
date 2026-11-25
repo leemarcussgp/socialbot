@@ -281,8 +281,6 @@ with st.sidebar:
 #                "https://www.mof.gov.sg/news-resources/individual-support-schemes/\n"
 #                "https://www.moe.gov.sg/financial-matters/financial-assistance"
                 "https://supportgowhere.life.gov.sg/schemes/COMCARE-SMTA/comcare-assistance\n"
-                "https://supportgowhere.life.gov.sg/schemes/COMCARE-SMTA/comcare-assistance\n"
-                "https://supportgowhere.life.gov.sg/schemes/COMCARE-SMTA/comcare-assistance\n"
                 "https://supportgowhere.life.gov.sg/schemes/SCFA/student-care-fee-assistance-scfa\n"
 #                "https://www.ecda.gov.sg/parents/subsidies-financial-assistance#KIFAS\n"
 #                "https://www.ecda.gov.sg/parents/subsidies-financial-assistance#CCICS"
