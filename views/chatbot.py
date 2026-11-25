@@ -456,7 +456,7 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Handle new user input
-if prompt := st.chat_input("Tell me about the client's situation"):
+if prompt := st.chat_input("Tell me about the client's situation and how I can help."):
     # Store and display the user's message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
