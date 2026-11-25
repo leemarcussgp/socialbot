@@ -9,9 +9,11 @@ import traceback
 import uuid
 from urllib.parse import urlparse
 
+import requests
 import streamlit as st
 from openai import OpenAI
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, WebBaseLoader
+from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
@@ -134,37 +136,87 @@ def _validate_public_url(url):
             raise ValueError("Refusing to fetch a non-public address.")
 
 
+# Jina AI Reader renders JavaScript server-side and returns clean text, so it
+# handles single-page apps that a plain HTTP fetch cannot, and fetches from its
+# own infrastructure (which also sidesteps datacenter-IP blocks).
+JINA_READER_PREFIX = "https://r.jina.ai/"
+
+
+def _usable_text(documents):
+    """True if the loaded documents contain enough real, non-JS-gated text."""
+    text = "\n".join(
+        doc.page_content.strip() for doc in documents if doc.page_content.strip()
+    )
+    if len(text) < 300:
+        return False
+    if "you need to enable javascript" in text.lower():
+        return False
+    return True
+
+
+def _fetch_direct(url):
+    """Fetch a page over plain HTTP (no JavaScript rendering)."""
+    return WebBaseLoader(
+        url,
+        header_template={
+            "User-Agent": os.environ["USER_AGENT"],
+            "Accept": "text/html,application/xhtml+xml",
+        },
+        requests_kwargs={"timeout": 30},
+        raise_for_status=True,
+    ).load()
+
+
+def _fetch_via_jina(url):
+    """Fetch a JavaScript-rendered page's text through the Jina Reader proxy."""
+    resp = requests.get(
+        JINA_READER_PREFIX + url,
+        headers={"User-Agent": os.environ["USER_AGENT"]},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return [Document(page_content=resp.text, metadata={"source": url})]
+
+
 def load_and_split_url(url, chunk_size=800, chunk_overlap=100):
-    """Fetch a web page and return split Document chunks labeled with the URL."""
+    """Fetch a web page and return split Document chunks labeled with the URL.
+
+    Tries a fast direct HTTP fetch first; if the page yields too little text
+    (e.g. a JavaScript single-page app) or the direct fetch fails, it falls
+    back to the Jina Reader rendering proxy.
+    """
     _validate_public_url(url)
     last_error = None
+
+    # 1) Direct fetch. Retry transient network errors, but if the page simply
+    #    has no readable text, stop retrying and move to the rendering proxy.
     for attempt in range(3):
         try:
-            documents = WebBaseLoader(
-                url,
-                header_template={
-                    "User-Agent": os.environ["USER_AGENT"],
-                    "Accept": "text/html,application/xhtml+xml",
-                },
-                requests_kwargs={"timeout": 30},
-                raise_for_status=True,
-            ).load()
-
-            usable_text = "\n".join(
-                doc.page_content.strip() for doc in documents if doc.page_content.strip()
-            )
-            if len(usable_text) < 300:
-                raise ValueError("The page did not contain enough readable text.")
-            if "you need to enable javascript" in usable_text.lower():
-                raise ValueError("The page requires JavaScript to display its content.")
-
-            return _split(documents, url, chunk_size, chunk_overlap)
+            documents = _fetch_direct(url)
+            if _usable_text(documents):
+                return _split(documents, url, chunk_size, chunk_overlap)
+            last_error = ValueError("The page did not contain enough readable text.")
+            break  # A JS/empty page won't improve on retry.
         except Exception as exc:
             last_error = exc
             if attempt < 2:
                 time.sleep(1 * (attempt + 1))
 
-    raise RuntimeError(f"Could not fetch usable text after 3 attempts: {last_error}")
+    # 2) Fallback: render JavaScript via Jina Reader.
+    for attempt in range(3):
+        try:
+            documents = _fetch_via_jina(url)
+            if _usable_text(documents):
+                return _split(documents, url, chunk_size, chunk_overlap)
+            last_error = ValueError("The rendered page still had no readable text.")
+        except Exception as exc:
+            last_error = exc
+        if attempt < 2:
+            time.sleep(1 * (attempt + 1))
+
+    raise RuntimeError(
+        f"Could not fetch usable text (direct and rendered): {last_error}"
+    )
 
 
 @st.cache_resource
