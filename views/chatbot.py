@@ -463,7 +463,7 @@ def _clear_client_context():
 _context_on = bool(st.session_state.get("client_context", "").strip())
 with st.expander(
     "🧑 Client context (optional)" + (" — ✓ on" if _context_on else ""),
-    expanded=False,
+    expanded=True,
 ):
     # The text area owns its value via its key; no value= to avoid the
     # "default value + session state" warning.
@@ -478,7 +478,7 @@ with st.expander(
     )
     st.caption(
         "⚠️ Do not enter names, NRIC/FIN, address, phone, or email. "
-        "Describe the situation in general terms. This context is added to "
+        "Describe the situation in general terms. This context is used for "
         "every question until cleared."
     )
     st.button(
@@ -492,8 +492,31 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Handle new user input
-if prompt := st.chat_input("What do you need help with?"):
+# Quick-action buttons: one-click shortcuts for frequently used instructions.
+# Clicking one submits that instruction exactly as if the user had typed it;
+# typing a custom instruction still works as normal. Short label -> full text.
+QUICK_PROMPTS = {
+    "Eligible schemes": "Which schemes is this client likely eligible for?",
+    "Documents needed": "What documents are needed to apply?",
+    "Eligibility": "Summarise the eligibility criteria.",
+    "Income limits": "What are the income / means-test limits?",
+}
+
+st.caption("Quick actions")
+_cols = st.columns(len(QUICK_PROMPTS))
+for _col, (_label, _text) in zip(_cols, QUICK_PROMPTS.items()):
+    if _col.button(_label, use_container_width=True):
+        # Stash the instruction; the button click triggers a rerun, and the
+        # chat_input line below picks it up.
+        st.session_state["pending_prompt"] = _text
+
+# Handle new user input: a typed message, or a button-selected instruction.
+# Always pop the pending prompt so a stale value can never fire on a later run;
+# a message the user typed this run takes precedence over a button selection.
+typed_prompt = st.chat_input("What do you need help with?")
+pending_prompt = st.session_state.pop("pending_prompt", None)
+prompt = typed_prompt or pending_prompt
+if prompt:
     # Store and display the user's message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
