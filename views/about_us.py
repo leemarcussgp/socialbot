@@ -64,6 +64,12 @@ The model is **not** given any external knowledge beyond these sources.
 
 - **Multi-source retrieval (RAG)** — combines web pages and documents into one
   index and retrieves the most relevant passages for each question.
+- **Client context** — an optional field describing the client's situation in
+  general terms; when provided, it is woven into every answer so responses are
+  tailored to the case without the user re-typing the background each time.
+- **Quick-action buttons** — one-click shortcuts for frequently used
+  instructions (e.g. eligible schemes, documents needed), alongside free-form
+  typing.
 - **Live web fetching with JavaScript support** — fetches pages directly, and
   automatically falls back to a rendering service for JavaScript-heavy sites
   that a plain fetch cannot read.

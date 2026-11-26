@@ -88,11 +88,13 @@ digraph {
   subgraph cluster_query {
     label="Query"; style=dashed; color="#9bb4d6";
     q [label="User question"];
+    ctx [label="Client context\n(optional)"];
     qemb [label="Embed question"];
     ret [label="Retrieve top-k\nsimilar chunks"];
     llm [label="gpt-4o-mini\n(answer from context)"];
     ans [label="Streamed answer\n+ cited sources"];
     q -> qemb -> ret -> llm -> ans;
+    ctx -> llm [label="prepend", color="#5b7cb3"];
   }
 
   store -> ret [label="similarity\nsearch", constraint=false, color="#5b7cb3"];
@@ -253,12 +255,23 @@ st.header("4. Ask a question")
 
 st.markdown(
     """
-When the user sends a message, it is stored in history. If an index exists, the
-question is embedded and the top-**k** most similar chunks are retrieved and
-folded into a RAG system prompt that instructs the model to answer **only** from
-that context. With no index, the base system prompt is used. The last 20
-messages plus the system prompt are sent to `gpt-4o-mini`, and the reply streams
-back. If retrieved chunks were used, a **View Sources** panel lists them.
+A question can be entered two ways — typed in the chat box, or chosen with a
+**quick-action button** (a one-click shortcut that submits a common
+instruction). Both feed the same handler, and the conversation is shown in a
+fixed-height, scrollable window.
+
+The system prompt is then assembled in up to three layers:
+
+1. the **base system prompt** (the assistant's role),
+2. the optional **client context**, if the user provided any, and
+3. the **retrieved document context** — if an index exists, the question is
+   embedded and the top-**k** most similar chunks are folded in with an
+   instruction to answer **only** from them.
+
+Retrieval runs on the **question only**, so the client context tailors the
+answer without skewing the similarity search. The assembled system prompt plus
+the last 20 messages are sent to `gpt-4o-mini`, and the reply streams back. If
+retrieved chunks were used, a **View Sources** panel lists them.
 """
 )
 
@@ -269,13 +282,15 @@ digraph {
   node [shape=box, style="rounded,filled", fillcolor="#eef3fb", fontname="Helvetica"];
   edge [fontname="Helvetica", fontsize=10];
 
-  q [shape=oval, fillcolor="#dcedc8", label="User sends\nchat message"];
+  q [shape=oval, fillcolor="#dcedc8", label="Typed message OR\nquick-action button"];
   save [label="Append to history\n(session_state)"];
+  base [label="Start from base\nsystem prompt"];
+  ctx [shape=diamond, fillcolor="#fff3cd", label="client context\nprovided?"];
+  addctx [label="Prepend client\nsituation to prompt"];
   has [shape=diamond, fillcolor="#fff3cd", label="vector store\navailable?"];
-  emb [label="Embed query"];
+  emb [label="Embed question\n(question only)"];
   ret [label="Retrieve top-k chunks\n(retriever.invoke)"];
   rag [label="build_rag_system_prompt\n(context + 'use only this')"];
-  base [label="Use base\nsystem prompt"];
   call [label="gpt-4o-mini\nchat.completions (stream,\nlast 20 messages)"];
   stream [label="Stream tokens to UI"];
   used [shape=diamond, fillcolor="#fff3cd", label="sources used?"];
@@ -283,11 +298,13 @@ digraph {
   store [label="Save reply to history"];
   done [shape=oval, fillcolor="#dcedc8", label="Answer shown"];
 
-  q -> save -> has;
+  q -> save -> base -> ctx;
+  ctx -> addctx [label="yes"];
+  ctx -> has [label="no"];
+  addctx -> has;
   has -> emb [label="yes"];
-  has -> base [label="no"];
+  has -> call [label="no"];
   emb -> ret -> rag -> call;
-  base -> call;
   call -> stream -> used;
   used -> cite [label="yes"];
   used -> store [label="no"];
