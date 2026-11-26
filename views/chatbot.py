@@ -450,13 +450,50 @@ with st.sidebar:
                 msg += f" {duplicates} duplicate entry(ies) ignored."
             index_status.success(msg)
 
+# Optional client context. When filled, it is injected into the system prompt
+# on every turn so answers are tailored to the client's situation, without the
+# user having to repeat it. Empty by default, so quick one-off questions stay
+# frictionless. Kept separate from the conversation so "Clear Conversation"
+# does not wipe it.
+def _clear_client_context():
+    # Runs before widgets are instantiated, so modifying the keyed value is safe.
+    st.session_state["client_context"] = ""
+
+
+_context_on = bool(st.session_state.get("client_context", "").strip())
+with st.expander(
+    "🧑 Client context (optional)" + (" — ✓ on" if _context_on else ""),
+    expanded=False,
+):
+    # The text area owns its value via its key; no value= to avoid the
+    # "default value + session state" warning.
+    client_context = st.text_area(
+        "Describe the client's situation in general terms",
+        key="client_context",
+        height=120,
+        placeholder=(
+            "e.g. 58, recently unemployed, sole caregiver for an elderly "
+            "parent, limited savings."
+        ),
+    )
+    st.caption(
+        "⚠️ Do not enter names, NRIC/FIN, address, phone, or email. "
+        "Describe the situation in general terms. This context is added to "
+        "every question until cleared."
+    )
+    st.button(
+        "Clear context",
+        on_click=_clear_client_context,
+        disabled=not client_context.strip(),
+    )
+
 # Render past messages in chat bubbles
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
 # Handle new user input
-if prompt := st.chat_input("Tell me about the client's situation and how I can help."):
+if prompt := st.chat_input("What do you need help with?"):
     # Store and display the user's message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -467,15 +504,28 @@ if prompt := st.chat_input("Tell me about the client's situation and how I can h
         source_docs = []
         try:
             with st.spinner("Thinking..."):
-                # Base instruction comes from the sidebar; add RAG context if a
-                # document is indexed, otherwise use the base prompt as-is.
+                # Base instruction comes from the sidebar.
+                active_system_prompt = system_prompt
+
+                # Add the optional client context (if the user provided any) so
+                # the answer is tailored to the client's situation.
+                situation = client_context.strip()
+                if situation:
+                    active_system_prompt += (
+                        "\n\nClient situation (background provided by the "
+                        f"social worker):\n{situation}"
+                    )
+
+                # Add retrieved document context if a document is indexed.
+                # Retrieval runs on the question only, so the client context
+                # never dilutes the similarity search.
                 if "vectorstore" in st.session_state:
                     context, source_docs = retrieve_context(
                         st.session_state.vectorstore, prompt, k=k_value
                     )
-                    active_system_prompt = build_rag_system_prompt(system_prompt, context)
-                else:
-                    active_system_prompt = system_prompt
+                    active_system_prompt = build_rag_system_prompt(
+                        active_system_prompt, context
+                    )
 
                 # Only send the most recent turns so token cost and context
                 # usage stay bounded on long conversations.
