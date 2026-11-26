@@ -487,10 +487,15 @@ with st.expander(
         disabled=not client_context.strip(),
     )
 
-# Render past messages in chat bubbles
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+# Chat history lives in a fixed-height, scrollable window so the Quick-action
+# buttons and the input below it stay visible no matter how long the
+# conversation gets. The container handle is reused by the input handler so a
+# newly sent turn renders inside this same window.
+chat_box = st.container(height=420, border=True)
+with chat_box:
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
 # Quick-action buttons: one-click shortcuts for frequently used instructions.
 # Clicking one submits that instruction exactly as if the user had typed it;
@@ -517,13 +522,17 @@ typed_prompt = st.chat_input("What do you need help with?")
 pending_prompt = st.session_state.pop("pending_prompt", None)
 prompt = typed_prompt or pending_prompt
 if prompt:
-    # Store and display the user's message
+    # Store and display the user's message. The bubbles are created inside the
+    # scrollable chat window (chat_box) so this turn appears there too.
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
+    with chat_box:
+        user_bubble = st.chat_message("user")
+        assistant_bubble = st.chat_message("assistant")
+    with user_bubble:
         st.markdown(prompt)
 
     # Stream the assistant's reply from OpenAI
-    with st.chat_message("assistant"):
+    with assistant_bubble:
         source_docs = []
         try:
             with st.spinner("Thinking..."):
